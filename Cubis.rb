@@ -133,7 +133,7 @@ module Cinch
                     m.reply remove_hl(u[:nick]) + " a vomi " + u[:etat].to_s + " verres sur " + remove_hl(victime[:nick]) + " :)"
                   end
                   u[:propre] -= u[:etat]/2
-                  u[:propre] + 0 if u[:propre] < 0
+                  u[:propre] = 0 if u[:propre] < 0
                   victime[:propre] -= u[:etat]
                   victime[:propre] = 0 if victime[:propre] < 0
                   u[:etat] = 0
