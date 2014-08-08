@@ -15,7 +15,6 @@ module Cinch
         @users = []
         @memory = []
         @hide = []
-        @hide_time = 10
         @colors = [{ id: 2, color: "bleu" }, { id: 3, color: "vert" }, { id: 5, color: "rouge" }, { id: 7, color: "jaune" }]
         @phrases = [method(:drink_one), method(:drink_two), method(:drink_three), method(:drink_four), method(:drink_five), method(:drink_six), method(:drink_seven), method(:drink_eight), method(:drink_nine)]
         restart_vote
@@ -245,10 +244,11 @@ module Cinch
 
             if rand(10 - u[:etat]) == 0
               if rand(4) == 0
-                m.reply "Attention, " + remove_hl(u[:nick]) + " va vomir " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " dans " + @hide_time.to_s + " secondes. Gare à la fontaine !"
+                hide_time = rand(7) + 4
+                m.reply "Attention, " + remove_hl(u[:nick]) + " va vomir " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " dans " + hide_time.to_s + " secondes. Gare à la fontaine !"
                 @hide = Array.new @users
                 u[:wait] = true
-                sleep @hide_time
+                sleep hide_time
                 u[:wait] = false
                 victimes = Array.new(@hide.map { |user| if user[:propre] != 0; user; end }).compact
               else
@@ -267,16 +267,16 @@ module Cinch
               end
               if u[:etat] >= 2 and u[:etat] <= 5
                 sender[:propre] += 1
-              elsif u[:etat] > 6
+              elsif u[:etat] >= 6
                 sender[:propre] += 2
               end
-              sender[:propre] = 20 if sender[:propre] > 20
 
               u[:propre] -= u[:etat]/2
               u[:propre] = 0 if u[:propre] < 0
               victime[:propre] -= u[:etat]
               victime[:propre] = 0 if victime[:propre] < 0
               u[:etat] = 0
+              sender[:propre] = 20 if sender[:propre] > 20
               # propre m
             end
             sender[:spam] = 0
