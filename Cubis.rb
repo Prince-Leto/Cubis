@@ -10,14 +10,19 @@ module Cinch
 
       def initialize(*)
         super
-        @buffalo_time = 30
-        @drink_time = 60
+        @buffalo_time = 30 # Temps de rechargement de !buffalo
+        @drink_time = 60 # Temps de rechargement de !water
+        @double_buf_time = 3*60 # Durée du double buffalo
+        @protection_time = 2*60 # Durée de la protection
+        @bonus = 10 # Nombre de secondes bonus
+        @bonus_time = 3*60 # Durée du bonus
+        @vote_time = 60*5 # Durée d'activité des joueurs et du vote
+        @game = []
+        @hide = []
         @users = []
         @memory = []
-        @hide = []
         @colors = [{ id: 2, color: "bleu" }, { id: 3, color: "vert" }, { id: 5, color: "rouge" }, { id: 7, color: "jaune" }]
         @phrases = [method(:drink_one), method(:drink_two), method(:drink_three), method(:drink_four), method(:drink_five), method(:drink_six), method(:drink_seven), method(:drink_eight), method(:drink_nine)]
-        restart_vote
       end
 
       def find_user nick, array
@@ -74,12 +79,7 @@ module Cinch
         end
       end
 
-      def restart_vote
-        @vote = { data: 0, time: 0 }
-      end
-
       def restart m
-        restart_vote
         @users = []
         @memory = []
         m.channel.users.each do |user|
@@ -88,199 +88,233 @@ module Cinch
       end
 
       def anwser m
-        if m.channel == "#cubis" or m.user.nick == "Samy"
+        if m.channel != "#cubis" and m.user.nick != "Samy"
+          return
+        end
+
+        sender = find_user m.user.nick, @users
+        now = Time.now.to_i
+        if sender.nil?
+          add_nick m.user.nick
           sender = find_user m.user.nick, @users
-          now = Time.now.to_i
-          if sender.nil?
-            add_nick m.user.nick
-            sender = find_user m.user.nick, @users
+        end
+        sender[:last_activity] = now
+
+        if m.message == '!etat'
+          etat m
+        elsif m.message =~ /^!sexe : ([fm])$/
+          sender[:sexe] = $~[1]
+          if sender[:sexe] == 'm'
+            m.reply "C'est noté, monsieur"
+          else
+            m.reply "C'est noté, madame"
           end
-          sender[:last_activity] = now
-          if m.message == '!etat'
-            etat m
-          elsif m.message =~ /^!sexe : ([fm])$/
-            sender[:sexe] = $~[1]
-            if sender[:sexe] == 'm'
-              m.reply "C'est noté, monsieur"
-            else
-              m.reply "C'est noté, madame"
-            end
-          elsif m.message == '!propre'
-            propre m
-          elsif m.message == '!hide'
-            @hide.delete sender
-          elsif m.message == '!voterestart'
-            critere = 60*5 # 5 minutes
-            actifs = 0
-            @users.each do |user|
-              actifs += 1 if now - user[:last_activity] < critere
-            end
-            if @vote[:time] == 0 or (@vote[:time] != 0 and now - @vote[:time] > critere)
-              if @vote[:time] != 0 and now - @vote[:time] > critere
-                restart_vote
-                m.reply "Le vote précédent a expiré"
-              end
-              m.reply "Il y a " + actifs.to_s + " actif" + ((actifs != 1) ? "s" : "") + ", il faut " + ((actifs + actifs%2 + 2*((actifs + 1)%2))/2).to_s + " voix pour redémarrer la game"
-            end
-            @vote[:data] += 1
-            @vote[:time] = now
-            if @vote[:data] > actifs/2
-              m.reply "Le jeu redémarre !"
-              restart m
-            end
-          elsif m.message == '!restart' and m.user.nick == "Samy"
+        elsif m.message =~ /!score ([^\s]+)/
+          u = find_user $~[1], @users
+
+          if u.nil?
+            m.repply "Ce pseudo n'existe pas..."
+            return
+          end
+
+          m.reply remove_hl(u[:nick]) + " : " + u[:vomi].to_s + " vomi" + ((u[:vomi] != 1) ? "s" : "") + " | " + (u[:verres].to_f/u[:vomi]).to_s + " verres par vomi en moyenne"
+        elsif m.message == '!propre'
+          propre m
+        elsif m.message == '!hide'
+          @hide.delete sender
+        elsif m.message == '!voterestart'
+          sender[:vote] = now
+          actifs = 0
+          vote = 0
+          @users.each do |user|
+            actifs += 1 if now - user[:last_activity] < @vote_time
+            vote += 1 if now - user[:vote] < @vote_time
+          end
+
+          if vote > actifs/2
+            m.reply "Le jeu redémarre !"
             restart m
-          # elsif m.message == "!replay" and sender[:propre] == 0
-          #   r = quizz
-          #   sender[:game] = r[1]
-          #   m.reply r[0]
-          # elsif m.message =~ /!play\s:\s(([^\s]+\s){9}[^\s]+)/ and sender[:propre] == 0
-          #   res = []
-          #   m.message.split(":")[1].split(" ").each do |color|
-          #     res.push(find_color(color)[:id])
-          #   end
-          #   if res == sender[:game]
-          #     sender[:propre] = 20
-          #     m.reply remove_hl(sender[:nick]) + " est à nouveau propre"
-          #   else
-          #     m.reply "Try again"
-          #   end
-          elsif m.message =~ /^!water ([^\s]+)/
-            u = find_user $~[1], @users
+          else
+            m.reply "Il y a " + actifs.to_s + " actif" + ((actifs != 1) ? "s" : "") + ", il faut " + ((actifs + 2)/2).to_s + " voix pour redémarrer la partie"
+          end
+        elsif m.message == '!restart' and m.user.nick == "Samy"
+          restart m
+        # elsif m.message == "!replay" and sender[:propre] == 0
+        #   r = quizz
+        #   sender[:game] = r[1]
+        #   m.reply r[0]
+        elsif m.message =~ /!play\s:\s(([^\s]+\s){9}[^\s]+)/
+          if sender[:propre] == 0
+            m.reply "Désolé, " + remove_hl(sender[:nick]) + " tu es trop sale pour jouer."
+            return
+          end
 
-            if sender[:propre] == 0
-              m.reply "Désolé " + remove_hl(sender[:nick]) + ", tu es tout pas propre, tu ne peux plus jouer :("
-              return
+          if @game.empty?
+            m.reply "Trop tard, le jeu est fini :("
+            return
+          end
+
+          res = []
+          m.message.split(":")[1].split(" ").each do |color|
+            res.push(find_color(color)[:id])
+          end
+          if res == @game
+            @game = []
+            r = rand(3)
+            if r == 0
+              sender[:double_buf] = now
+             w m.reply "Bravo " + remove_hl(sender[:nick]) + " ! Tes buffalos comptent double pendant " + @double_buf_time.to_s + " secondes"
+            elsif r == 1
+              sender[:protection] = now
+              m.reply "Bravo " + remove_hl(sender[:nick]) + " ! En récompense, tu ne peux pas te faire vomir dessus pendant " + @protection_time.to_s + " secondes"
+            elsif r == 2
+              sender[:bonus] = now
+              m.reply "Bravo " + remove_hl(sender[:nick]) + " ! Tu as " + @bonus.to_s + " secondes d'attente en moins pendant " + @bonus_time.to_s + " secondes"
             end
+          else
+            m.reply "Try again"
+          end
+        elsif m.message =~ /^!water ([^\s]+)/
+          u = find_user $~[1], @users
 
-            if u == sender
-              m.reply "Te faire boire de l'eau à toi même. Et puis quoi encore"
-              return
+          if sender[:propre] == 0
+            m.reply "Désolé " + remove_hl(sender[:nick]) + ", tu es tout pas propre, tu ne peux plus jouer :("
+            return
+          end
+
+          if u == sender
+            m.reply "Te faire boire de l'eau à toi même. Et puis quoi encore"
+            return
+          end
+
+          if u.nil?
+            m.reply "Ce pseudo n'existe pas..."
+            return
+          end
+
+          if u[:propre] == 0
+            if u[:sexe] == 'm'
+              m.reply "Nope, " + remove_hl(u[:nick]) + " est tout cochon"
+            else
+              m.reply "Nope, " + remove_hl(u[:nick]) + " est toute cochonne"
             end
+            return
+          end
 
-            if u.nil?
-              m.reply "Ce pseudo n'existe pas..."
-              return
+          if now - sender[:drink_time] < @drink_time
+            m.reply remove_hl(sender[:nick]) + ", attends encore " + (@drink_time - now + sender[:drink_time]).to_s + " secondes"
+            if sender[:spam] == 5
+              m.channel.kick m.user.nick, "Stop spam"
             end
+            sender[:spam] += 1
+            return
+          end
 
-            if u[:propre] == 0
-              if u[:sexe] == 'm'
-                m.reply "Nope, " + remove_hl(u[:nick]) + " est tout cochon"
-              else
-                m.reply "Nope, " + remove_hl(u[:nick]) + " est toute cochonne"
-              end
-              return
-            end
-
-            if rand(6) == 0
-              random = @users[rand @users.length]
-              m.reply remove_hl(sender[:nick]) + ", tu ne peux pas boire avec " + remove_hl(u[:nick]) + ". " + remove_hl(random[:nick]) + " est en train de faire de la merde avec les gobelets"
-              return
-            end
-
-            if now - sender[:drink_time] < @drink_time
-              m.reply remove_hl(sender[:nick]) + ", attends encore " + (@drink_time - now + sender[:drink_time]).to_s + " secondes"
-              if sender[:spam] == 5
-                m.channel.kick m.user.nick, "Stop spam"
-              end
-              sender[:spam] += 1
-              return
-            end
-
-            sender[:drink_time] = now
+          if rand(6) == 0
+            random = @users[rand @users.length]
+            m.reply remove_hl(sender[:nick]) + ", tu ne peux pas boire avec " + remove_hl(u[:nick]) + ". " + remove_hl(random[:nick]) + " est en train de faire de la merde avec les gobelets"
+          else
             u[:etat] -= 2
             u[:etat] = 0 if u[:etat] < 0
             sender[:etat] -= 1 unless sender[:etat] == 0
-            sender[:spam] = 0
-
-          elsif m.message =~ /^!buffalo ([^\s]+)/
-            u = find_user $~[1], @users
-
-            if sender[:propre] == 0
-              m.reply "Désolé " + remove_hl(sender[:nick]) + ", tu es tout pas propre, tu ne peux plus jouer :("
-              return
-            end
-
-            if u.nil?
-              m.reply "Ce pseudo n'existe pas..."
-              return
-            end
-
-            if u[:wait]
-              m.reply "Non, " + remove_hl(u[:nick]) + " est déjà en train de vomir"
-              return
-            end
-
-            if u[:propre] == 0
-              if u[:sexe] == 'm'
-                m.reply remove_hl(u[:nick]) + " est tout cochon, et tu compte le faire boire ?"
-              else
-                m.reply remove_hl(u[:nick]) + " est toute cochonne, et tu compte la faire boire ?"
-              end
-              return
-            end
-
-            if now - sender[:buf_time] < @buffalo_time
-              m.reply remove_hl(sender[:nick]) + ", attends encore " + (@buffalo_time - now + sender[:buf_time]).to_s + " secondes"
-              if sender[:spam] == 5
-                m.channel.kick m.user.nick, "Stop spam"
-              end
-              sender[:spam] += 1
-              return
-            end
-
-            sender[:buf_time] = now - sender[:etat]*3
-            if rand(4 + u[:etat]*2) == 0
-              m.reply "Pas de chance, " + remove_hl(u[:nick]) + " buvait de la bonne main. Tu bois !"
-              u = sender
-            end
-            u[:etat] += 1
-            # etat m
-
-            if u[:etat] > 9
-              m.reply "Oups, j'ai bugué... :("
-              return
-            end
-
-            if rand(10 - u[:etat]) == 0
-              if rand(4) == 0
-                hide_time = rand(7) + 4
-                m.reply "Attention, " + remove_hl(u[:nick]) + " va vomir " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " dans " + hide_time.to_s + " secondes. Gare à la fontaine !"
-                @hide = Array.new @users
-                u[:wait] = true
-                sleep hide_time
-                u[:wait] = false
-                victimes = Array.new(@hide.map { |user| if user[:propre] != 0; user; end }).compact
-              else
-                victimes = Array.new(@users.map { |user| if user[:propre] != 0; user; end }).compact
-              end
-              if victimes.empty?
-                victime = u
-              else
-                victime = victimes[rand victimes.length]
-              end
-              if victime == u
-                m.reply remove_hl(u[:nick]) + " a vomi " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " dans sa culotte :)"
-              else
-                m.reply @phrases[u[:etat] - 1].call(remove_hl(u[:nick]), remove_hl(victime[:nick]), u[:sexe])
-                # m.reply remove_hl(u[:nick]) + " a vomi " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " sur " + remove_hl(victime[:nick]) + " :)"
-              end
-              if u[:etat] >= 2 and u[:etat] <= 5
-                sender[:propre] += 1
-              elsif u[:etat] >= 6
-                sender[:propre] += 2
-              end
-
-              u[:propre] -= u[:etat]/2
-              u[:propre] = 0 if u[:propre] < 0
-              victime[:propre] -= u[:etat]
-              victime[:propre] = 0 if victime[:propre] < 0
-              u[:etat] = 0
-              sender[:propre] = 20 if sender[:propre] > 20
-              # propre m
-            end
-            sender[:spam] = 0
           end
+          sender[:drink_time] = now - ((now - sender[:bonus] < @bonus_time) ? @bonus : 0)
+          sender[:spam] = 0
+
+        elsif m.message =~ /^!buffalo ([^\s]+)/
+          u = find_user $~[1], @users
+
+          if sender[:propre] == 0
+            m.reply "Désolé " + remove_hl(sender[:nick]) + ", tu es tout pas propre, tu ne peux plus jouer :("
+            return
+          end
+
+          if u.nil?
+            m.reply "Ce pseudo n'existe pas..."
+            return
+          end
+
+          if u[:wait]
+            m.reply "Non, " + remove_hl(u[:nick]) + " est déjà en train de vomir"
+            return
+          end
+
+          if u[:propre] == 0
+            if u[:sexe] == 'm'
+              m.reply remove_hl(u[:nick]) + " est tout cochon, et tu comptes le faire boire ?"
+            else
+              m.reply remove_hl(u[:nick]) + " est toute cochonne, et tu comptes la faire boire ?"
+            end
+            return
+          end
+
+          if now - sender[:buf_time] < @buffalo_time
+            m.reply remove_hl(sender[:nick]) + ", attends encore " + (@buffalo_time - now + sender[:buf_time]).to_s + " secondes"
+            if sender[:spam] == 5
+              m.channel.kick m.user.nick, "Stop spam"
+            end
+            sender[:spam] += 1
+            return
+          end
+
+          sender[:buf_time] = now - sender[:etat]*3 - ((now - sender[:bonus] < @bonus_time) ? @bonus : 0)
+          if rand(4 + u[:etat]*2) == 0
+            m.reply "Pas de chance, " + remove_hl(u[:nick]) + " buvait de la bonne main. Tu bois !"
+            u = sender
+          end
+
+          u[:etat] += 1
+          if now - sender[:double_buf] < @double_buf_time
+            u[:etat] += 1
+          end
+          # etat m
+
+          if rand(10 - u[:etat]) == 0 or u[:etat] > 9
+            if rand(4) == 0
+              hide_time = rand(7) + 4
+              m.reply "\u0002Attention, " + remove_hl(u[:nick]) + " va vomir " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " dans " + hide_time.to_s + " secondes. Gare à la fontaine !"
+              @hide = Array.new @users
+              u[:wait] = true
+              sleep hide_time
+              u[:wait] = false
+              victimes = Array.new(@hide.map { |user| if user[:propre] != 0 and now - user[:protection] > @protection_time; user; end }).compact
+            else
+              victimes = Array.new(@users.map { |user| if user[:propre] != 0 and now - user[:protection] > @protection_time; user; end }).compact
+            end
+            if victimes.empty?
+              victime = u
+            else
+              victime = victimes[rand victimes.length]
+            end
+            if victime == u
+              m.reply "\u0002" + remove_hl(u[:nick]) + " a vomi " + u[:etat].to_s + " verre" + ((u[:etat] != 1) ? "s" : "") + " dans sa culotte :)"
+            else
+              m.reply "\u0002" + @phrases[u[:etat] - 1].call(remove_hl(u[:nick]), remove_hl(victime[:nick]), u[:sexe])
+            end
+            if u[:etat] >= 2 and u[:etat] <= 5
+              sender[:propre] += 1
+            elsif u[:etat] >= 6
+              sender[:propre] += 2
+            end
+
+            u[:vomi] += 1
+            u[:verres] += u[:etat]
+            u[:propre] -= u[:etat]/2
+            u[:propre] = 0 if u[:propre] < 0
+            victime[:propre] -= u[:etat]
+            victime[:propre] = 0 if victime[:propre] < 0
+            sender[:propre] = 20 if sender[:propre] > 20
+            u[:etat] = 0
+            # propre m
+          end
+          sender[:spam] = 0
+        end
+
+        if rand(100) == 0
+          m.reply "Répondez vite, et profitez d'un bonus :"
+          r = quizz
+          @game = r[1]
+          m.reply r[0]
         end
       end
 
@@ -291,7 +325,7 @@ module Cinch
       def add_nick nick
         mem = find_user nick, @memory
         if mem.nil?
-          @users.push({ nick: nick, etat: 0, propre: 20, buf_time: 0 , drink_time: 0, game: [], spam: 0, last_activity: 0, sexe: 'm', wait: false })
+          @users.push({ nick: nick, etat: 0, propre: 20, buf_time: 0 , drink_time: 0, spam: 0, last_activity: 0, sexe: 'm', wait: false, double_buf: 0, vote: 0, protection: 0, bonus: 0, vomi: 0, verres: 0 })
         else
           @users.push mem
         end
@@ -334,7 +368,7 @@ module Cinch
       end
 
       def drink_four drinker, victime, sexe
-        drinker + " a régurgité 4 verres dans la face de " + victime
+        drinker + " a régurgité 4 verres dans les cheveux de " + victime
       end
 
       def drink_five drinker, victime, sexe
