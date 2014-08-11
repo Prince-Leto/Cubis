@@ -42,7 +42,7 @@ La cible perd, quant à elle, l'intégralité du nombre de verres en propreté.
 Lorsque quelqu'un vomi, il y a 1 chance sur 4 qu'un événement spécial ait lieu. Le joueur va vomir, mais vous avez 4 à 10 secondes pour vous cacher avec la commande `!hide`. Celui qui vomi aussi peut prendre la peine de se protéger. Un joueur propre sera choisi au hasard parmi ceux qui ne se sont pas cachés. Si tout le monde s'est caché, la personne qui vomi, se vomira dessus.
 
 ## Mini-jeu bonus
-Pour chaque message, avec une probabilité de 1/100, un mini jeu peut apparaître. Dix couleurs sont écrites, avec une couleur de police pas nécéssairement la même. Vous devez donner le nom des couleurs des mots, précédés de la commande `!play : `
+Pour chaque message, avec une probabilité de 1/100, un mini jeu peut apparaître. Dix couleurs sont écrites, avec une couleur de police aléatoire. Vous devez donner le nom des couleurs des mots, précédés de la commande `!play : `
 
 Une des récompense suivante vous sera alors attribuée :
 * Buffalo compte double pendant 3 minutes
